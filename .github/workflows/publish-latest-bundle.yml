@@ -1,0 +1,60 @@
+name: Publish Wave Studio latest package
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site-source.tar.xz.b64'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    if: "!contains(github.event.head_commit.message, '[wave-package]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out site
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Verify package and install assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p models
+          curl --fail --location --retry 3 --retry-delay 3 --max-time 600 \
+            'https://huggingface.co/Blane187/all_public_uvr_models/resolve/main/Kim_Vocal_2.onnx?download=true' \
+            -o /tmp/Kim_Vocal_2.onnx
+          echo 'ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b  /tmp/Kim_Vocal_2.onnx' | sha256sum --check
+          python3 - <<'PY'
+          import base64, io, lzma, pathlib, tarfile, hashlib
+          b64=pathlib.Path('site-source.tar.xz.b64').read_text().strip()
+          compressed=base64.b64decode(b64, validate=True)
+          if hashlib.sha256(compressed).hexdigest()!='1c066eef26abcba220a3ef166c2852c5a6ed1daf1efd39e5dc8c069b859c3158':
+              raise RuntimeError('Source package checksum mismatch')
+          with tarfile.open(fileobj=io.BytesIO(lzma.decompress(compressed))) as z:
+              for member in z.getmembers():
+                  if not member.isfile() or pathlib.PurePosixPath(member.name).is_absolute() or '..' in pathlib.PurePosixPath(member.name).parts:
+                      raise RuntimeError('Unsafe member: '+member.name)
+              z.extractall('.',filter='data')
+          model=pathlib.Path('/tmp/Kim_Vocal_2.onnx')
+          with model.open('rb') as source:
+              index=0
+              while chunk:=source.read(8*1024*1024):
+                  pathlib.Path(f'models/Kim_Vocal_2.part{index:02d}.bin').write_bytes(chunk)
+                  index+=1
+          assert index==8, f'Expected 8 model parts, got {index}'
+          print('Source and model files validated, original ONNX Runtime WASM retained.')
+          PY
+      - name: Publish package to main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No changes to publish'
+            exit 0
+          fi
+          git commit -m 'Publish latest Wave Studio package [wave-package]'
+          git push origin HEAD:main
