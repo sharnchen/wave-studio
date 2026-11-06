@@ -1,0 +1,10 @@
+# Wave Studio 2
+GitHub Pages front end and GitHub Actions CPU BS-RoFormer inference prototype.
+
+Open `/wave-studio/wave-studio2/`. Load MP3 locally, set start and length, then provide a fine-grained GitHub token scoped to this repository with Contents read/write. The token stays only in DOM memory; never send tokens in chat. Upload explicitly requires acknowledgment that audio and stems enter a public repository and persist in Git history. Browser converts only the selected slice into PCM WAV; original file names are not published. Max 10 minutes / 95 MiB. Whole-song selection starts at the chosen start time; set 0 for the whole song.
+
+A new `jobs/<timestamp>-<uuid8>/input.wav` commit triggers `wave-studio2-separate.yml`. CPU runner installs audio-separator and downloads BS-RoFormer Viperx 1297. Results are MP3 under `results/<job>/` with status JSON. Browser polls authenticated Contents API then downloads the public stems, decodes both, and schedules them together on one Web Audio clock. Ten-band EQ and post-EQ FFT work on either original or separated playback. Limiter reduces overload. Download links export raw separated stems, without live EQ or mixer processing.
+
+Do not use for confidential uploads. There is no shared token, anonymous write endpoint, or always-on inference server. Existing uploads are not automatically deleted. GitHub Actions CPU processing can be slow; first run downloads dependencies and weights. Jobs have a 180-minute timeout and a concurrency group; GitHub may replace older pending runs when multiple jobs queue, so this prototype is for single-user sequential testing. Retry a replaced/failed job via workflow_dispatch with its ID. Model/package dependencies are resolved at runtime; workflow saves pip freeze in its artifact for troubleshooting. Public production use requires a private upload service, authentication, queue, and retention management.
+
+Inference reference: https://github.com/nomadkaraoke/python-audio-separator

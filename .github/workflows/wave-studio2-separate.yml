@@ -1,0 +1,103 @@
+name: Wave Studio 2 · RoFormer separation
+on:
+  push:
+    branches: [main]
+    paths: ['wave-studio2/jobs/*/input.wav']
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: 'Existing job ID'
+        required: true
+        type: string
+permissions:
+  contents: write
+concurrency:
+  group: wave-studio2-inference
+  cancel-in-progress: false
+jobs:
+  separate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      OMP_NUM_THREADS: '4'
+      MKL_NUM_THREADS: '4'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Select validated job IDs
+        id: jobs
+        env:
+          MANUAL_JOB: ${{ inputs.job_id }}
+        run: |
+          python - <<'PY'
+          import json,os,pathlib,re,subprocess
+          manual=os.environ.get('MANUAL_JOB','')
+          if manual:
+              jobs=[manual]
+          else:
+              paths=subprocess.check_output(['git','diff-tree','--no-commit-id','--name-only','-r','HEAD'],text=True).splitlines()
+              jobs=[p.split('/')[2] for p in paths if re.fullmatch(r'wave-studio2/jobs/\d{13}-[a-f0-9]{8}/input.wav',p)]
+          if not jobs or any(not re.fullmatch(r'\d{13}-[a-f0-9]{8}',j) for j in jobs):
+              raise ValueError('No valid jobs')
+          pathlib.Path('/tmp/ws2-jobs.json').write_text(json.dumps(jobs))
+          PY
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install CPU inference runtime
+        id: install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg libsndfile1
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          pip install 'audio-separator[cpu]'
+          pip freeze > /tmp/ws2-runtime.txt
+      - name: Run BS-RoFormer
+        id: inference
+        run: |
+          python - <<'PY'
+          import json,subprocess
+          for job in json.load(open('/tmp/ws2-jobs.json')):
+              subprocess.run(['python','wave-studio2/infer.py',job],check=True)
+          PY
+      - name: Save explicit failure if setup or inference failed
+        if: failure()
+        run: |
+          python - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('/tmp/ws2-jobs.json')
+          if p.exists():
+              for job in json.loads(p.read_text()):
+                  out=pathlib.Path('wave-studio2/results')/job
+                  out.mkdir(parents=True,exist_ok=True)
+                  status=out/'status.json'
+                  if not status.exists():status.write_text(json.dumps({'state':'failed','error':'Runtime setup or job failed; inspect Actions logs.'}))
+          PY
+      - name: Publish results to repository
+        if: always()
+        run: |
+          if [ ! -d wave-studio2/results ]; then exit 0; fi
+          cp -R wave-studio2/results /tmp/ws2-results
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p wave-studio2/results
+          cp -R /tmp/ws2-results/. wave-studio2/results/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add wave-studio2/results
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'Wave Studio 2: publish separated stems'
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wave-studio2-results-${{ github.run_id }}
+          path: |
+            wave-studio2/results
+            /tmp/ws2-runtime.txt
+          retention-days: 7
