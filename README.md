@@ -1,60 +1,63 @@
-# Wave Studio — GitHub Pages 版
+# Wave Studio — 純網頁 AI 與播放音量版
 
-純 HTML / CSS / JavaScript 音訊編輯器。沒有後端、API Key、npm 安裝或建置步驟，也不依賴 ChatGPT 登入。音訊在瀏覽器本機處理。
+HTML、CSS、JavaScript 分開儲存；直接部署 GitHub Pages，不需要 Colab、Python 後端、API Key 或 ChatGPT 登入。
 
-## 最簡單部署：從分支發布
+## GitHub Pages 部署
 
-1. 在 GitHub 建立 Repository，例如 `wave-studio`。
-2. 解壓縮此 ZIP，將 **index.html、style.css、app.js** 一起上傳至 Repository 的最外層，不要只上傳 ZIP，也不要多包一層資料夾。
-3. 提交到 `main` 分支。
-4. 開啟 **Settings → Pages**。
-5. Source 選 **Deploy from a branch**；Branch 選 **main**，資料夾選 **/(root)**，按 Save。
-6. 等待 Pages 完成發布，從 Pages 設定頁開啟實際網址。一般專案網址格式為 `https://你的帳號.github.io/wave-studio/`。
+解壓縮後，將全部檔案與 vendor 資料夾一起上傳到 Repository 根目錄，保留目錄結構。不要只上傳 index.html。
 
-此方式需 index.html、style.css、app.js，三個檔案須放在同一層；不必上傳 .github 資料夾。
+簡單方式：Settings → Pages → Deploy from a branch → main → /(root) → Save。
 
-## 自動部署：GitHub Actions
+GitHub Actions 方式：包含 .github/workflows/deploy.yml 的所有檔案推送到 main，Pages 的 Source 選 GitHub Actions，第一次可手動 Run workflow。
 
-若你使用 Git 上傳完整專案（包含 `.github/workflows/deploy.yml`）：
+不能直接以 file:// 雙擊啟動 AI；請使用 GitHub Pages HTTPS 或 localhost 網頁伺服器。
 
-1. 上傳此資料夾內所有檔案到 Repository 根目錄，提交到 main。
-2. **Settings → Pages → Source** 選 **GitHub Actions**。
-3. 前往 **Actions → Deploy Wave Studio to GitHub Pages → Run workflow** 執行第一次部署。
-4. 後續每次推送 main，會自動更新網頁。
+## 播放音量
 
-不要同時混用兩種發布來源。若預設分支不是 main，請將 deploy.yml 的 branches 改為你的分支名稱。
+- Master：總音量 0–150%。
+- 左聲道 L / 右聲道 R：各自 0–150%。
+- 播放中即時生效，15 ms 平滑變化，0% 為靜音。
+- 重設音量：三組都恢復 100%。
+- 單聲道會送到左右輸出，可分別控制。
+- 僅作用於主編輯器播放，不改變音訊資料及匯出；AI 結果面板的原生試聽播放器使用自己的音量。
+- 實際聲道增益 = Master × 該聲道音量；兩者超過 100% 可能使輸出失真。
 
-## 功能
+## AI 去人聲
 
-- 波形檢視、時間選區、縮放、播放與循環
-- 剪下／複製／貼上、刪除、保留選區、復原／重做
-- 麥克風錄音、串接音訊、50% 混音、插入靜音
-- 增益、標準化、壓縮、淡入淡出、反向、迴音、混響
-- 低通／高通／帶通及低音、高音增強，噪音門、簡易點擊抑制
-- 中央人聲降低（左右聲道相減，非 AI 分軌）
-- FFT 即時頻譜、峰值／RMS 電平、時間標記
-- WAV PCM 16／24／32-bit 匯出，JSON 專案儲存／載入
+使用 Kim_Vocal_2 + web-audio-separation 0.3.1 + ONNX Runtime Web 1.29.0。
 
-## 使用與限制
+1. 匯入歌曲，在波形選取 10 秒左右區域。
+2. 按「分離伴奏與人聲」。未選取範圍時使用整檔，每次最多 60 秒。
+3. 首次會從 Hugging Face 下載約 67 MB 模型，成功後嘗試存入瀏覽器快取。
+4. 結果可試聽、下載 WAV，或載入編輯器。
 
-- 建議使用桌面 Chrome 或 Edge；先按「載入示範音訊」測試。
-- 麥克風需要 HTTPS 與使用者允許權限；GitHub Pages 提供 HTTPS。
-- 檔案格式依瀏覽器解碼能力而定，常見 WAV / MP3 較適合。未內建 MP3 編碼器，輸出為 WAV。
-- 不提供 VST、DirectX、AI 分軌、批次處理及所有 WavePad 格式。
-- 速度處理會連帶改變音高。效果採簡化 DSP，並非 WavePad 演算法。
-- 專案存檔為 32-bit 整數 PCM；超過 ±1 的訊號會裁切，請先檢查峰值。
-- 大檔案與最多 15 次編輯歷程可能使用大量記憶體。切換左側音訊會清除該次編輯的復原歷程與標記，請先存專案。
-- 網站本身不含音訊上傳功能；GitHub Pages 網站的存取權限由 GitHub 設定決定。
-- 這是獨立製作的 Wave Studio，非 NCH / WavePad 官方產品。
+推論完全在瀏覽器本機執行，沒有音訊上傳程式。模型下載需要網路，運算引擎檔案已包含在 vendor；不宣稱完全離線可用。
 
-## 參考
+自動模式優先嘗試 WebGPU，初始化失敗時嘗試 CPU。若 GPU 推論期間失敗，請手動選 CPU 再試。GitHub Pages 無跨來源隔離設定時 CPU 採單執行緒，可能很慢。處理期間請保持分頁開啟；重新整理會中止並清除未儲存內容。
 
-GitHub 官方發布來源說明：https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+這是實驗性 AI 功能，可能殘留人聲、產生音質損傷或遇到記憶體不足。不要用中央聲道相減功能的結果冒充 AI 結果。此版不支援全曲無限制推論、獨立變速不變調、VST、DirectX。
 
-## 檔案分工
+## 驗證範圍
 
-- `index.html`：頁面結構與控制項。
-- `style.css`：外部樣式表。
-- `app.js`：音訊處理與互動程式。
+- JavaScript 語法檢查通過。
+- 瀏覽器實測 CPU/WASM：2 秒合成示範音訊完成分離，產生伴奏與人聲。
+- Master / L / R 各滑桿與重設已驗證。
+- 尚未在此環境驗證 GPU 推論、長曲穩定性或真人歌曲分離品質。
 
-三個檔案請一起上傳，保留相對路徑。頁面中的 CSS 樣式及事件處理程式已移至外部檔案。
+## 主要檔案
+
+- index.html：頁面
+- style.css：樣式
+- app.js：編輯與主播放器
+- ai.js：AI 面板與流程，可自行修改
+- ai-engine.js：預先打包的 AI 推論函式庫
+- vendor/：ONNX Runtime Web 的 WASM 運算檔與授權
+- .github/workflows/deploy.yml：選用自動部署
+
+## 開源來源與授權
+
+- web-audio-separation（MIT）：https://github.com/incidentist/web-audio-separation
+- ONNX Runtime（MIT）：https://github.com/microsoft/onnxruntime
+- 內含 pffft WASM FFT，原始檔中保留上游產物及標記；參考分離引擎原始專案。
+- Kim_Vocal_2 模型由瀏覽器向上游鏡像下載，ZIP 未包含權重。模型使用與再散布條件須依權重提供者說明確認： https://huggingface.co/Blane187/all_public_uvr_models
+- 這是獨立開發的 Wave Studio，非 NCH / WavePad 官方產品。
