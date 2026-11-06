@@ -16,36 +16,51 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
-      - name: Verify package and install assets
+      - name: Download and verify bundled AI model
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p models
-          curl --fail --location --retry 3 --retry-delay 3 --max-time 600 \
+          curl --fail --location --retry 3 --retry-delay 3 --max-time 900 \
             'https://huggingface.co/Blane187/all_public_uvr_models/resolve/main/Kim_Vocal_2.onnx?download=true' \
             -o /tmp/Kim_Vocal_2.onnx
           echo 'ce74ef3b6a6024ce44211a07be9cf8bc6d87728cc852a68ab34eb8e58cde9c8b  /tmp/Kim_Vocal_2.onnx' | sha256sum --check
+      - name: Verify source payload and install all package files
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           import base64, io, lzma, pathlib, tarfile, hashlib
-          b64=pathlib.Path('site-source.tar.xz.b64').read_text().strip()
-          compressed=base64.b64decode(b64, validate=True)
-          if hashlib.sha256(compressed).hexdigest()!='1c066eef26abcba220a3ef166c2852c5a6ed1daf1efd39e5dc8c069b859c3158':
+          p=pathlib.Path('site-source.tar.xz.b64')
+          compressed=base64.b64decode(p.read_text().strip(),validate=True)
+          if hashlib.sha256(compressed).hexdigest()!='12790096035017d9bf056561017a03579dc352ba47869354ac2ebc4a84c43aeb':
               raise RuntimeError('Source package checksum mismatch')
-          with tarfile.open(fileobj=io.BytesIO(lzma.decompress(compressed))) as z:
-              for member in z.getmembers():
-                  if not member.isfile() or pathlib.PurePosixPath(member.name).is_absolute() or '..' in pathlib.PurePosixPath(member.name).parts:
-                      raise RuntimeError('Unsafe member: '+member.name)
-              z.extractall('.',filter='data')
+          with tarfile.open(fileobj=io.BytesIO(lzma.decompress(compressed))) as tar:
+              for member in tar.getmembers():
+                  path=pathlib.PurePosixPath(member.name)
+                  if not member.isfile() or path.is_absolute() or '..' in path.parts:
+                      raise RuntimeError('Unsafe source member: '+member.name)
+              tar.extractall('.',filter='data')
           model=pathlib.Path('/tmp/Kim_Vocal_2.onnx')
+          pathlib.Path('models').mkdir(exist_ok=True)
           with model.open('rb') as source:
-              index=0
+              count=0
               while chunk:=source.read(8*1024*1024):
-                  pathlib.Path(f'models/Kim_Vocal_2.part{index:02d}.bin').write_bytes(chunk)
-                  index+=1
-          assert index==8, f'Expected 8 model parts, got {index}'
-          print('Source and model files validated, original ONNX Runtime WASM retained.')
+                  pathlib.Path(f'models/Kim_Vocal_2.part{count:02d}.bin').write_bytes(chunk)
+                  count+=1
+          if count!=8:raise RuntimeError(f'Expected 8 model fragments, got {count}')
+          wasm=pathlib.Path('vendor/ort-wasm-simd-threaded.asyncify.wasm')
+          if not wasm.exists():raise RuntimeError('Expected existing vendor WASM asset')
+          with wasm.open('rb') as source:
+              count=0
+              while chunk:=source.read(8*1024*1024):
+                  pathlib.Path(f'vendor/ort-runtime.part{count:02d}.bin').write_bytes(chunk)
+                  count+=1
+          if count!=4:raise RuntimeError(f'Expected 4 WASM fragments, got {count}')
+          if hashlib.sha256(wasm.read_bytes()).hexdigest()!='503d17cb7411b79781b9fad1cf0978f03cf06b050c7d399c730e914f473bf549':
+              raise RuntimeError('Existing WASM binary does not match bundled runtime')
+          print('Wave Studio complete source, AI model and runtime verified')
           PY
-      - name: Publish package to main branch
+      - name: Publish updated website to main
         shell: bash
         run: |
           set -euo pipefail
