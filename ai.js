@@ -1,53 +1,77 @@
-// All inference is local. Only model weights are fetched from Hugging Face.
+import { allResults, saveResult, newResult } from './replay-store.js';
+import { mountStemPlayer } from './stem-player.js?v=10';
+import { clearModelCache } from './model-loader.js';
 const el=id=>document.getElementById(id);
-let busy=false, resultUrls=[];
-const stages={'loading-model':'下載／載入模型','demixing':'AI 分離中','writing-output':'產生結果'};
-el('aiRun').addEventListener('click',async()=>{
- if(busy)return;
- let separator,inputUrl;
- const status=s=>{el('aiStatus').textContent=s};
- try {
-  if(location.protocol==='file:')throw Error('請以 HTTPS 網站或 localhost 開啟，不能直接雙擊 HTML');
-  const snap=window.waveStudioAI.snapshot(el('aiSelection').checked);
-  busy=true;el('aiRun').disabled=true;el('aiProgress').value=0;
-  status('載入本機 AI 引擎…');
-  const {createSeparator}=await import('./ai-engine.js');
-  let provider='wasm';
-  if(el('aiBackend').value==='auto'&&navigator.gpu){try{if(await navigator.gpu.requestAdapter())provider='webgpu'}catch{}}
-  const config={common:{logLevel:'warning',normalizationThreshold:1,amplificationThreshold:0,onProgress:p=>{
-   const f=Math.max(0,Math.min(1,p.fraction));
-   el('aiProgress').value=p.stage==='loading-model'?f*.1:p.stage==='demixing'?.1+f*.85:.95+f*.05;
-   status((stages[p.stage]||p.stage)+' · '+Math.round(f*100)+'%'+(p.chunk?` (${p.chunk}/${p.totalChunks})`:'')+' · '+provider.toUpperCase());
-  }},mdx:{segmentSize:256,overlap:.25,batchSize:1,executionProviders:[provider]}};
-  separator=createSeparator('Kim_Vocal_2',config);
-  status('下載／載入 Kim Vocal 2 模型（約 67 MB）；首次需要網路…');
-  try{await separator.loadModel()}catch(error){
-   if(provider!=='webgpu')throw error;
-   if(separator.model?.release)await separator.model.release().catch(()=>{});
-   if(separator.modelPath?.startsWith('blob:'))URL.revokeObjectURL(separator.modelPath);
-   provider='wasm';config.mdx.executionProviders=['wasm'];separator=createSeparator('Kim_Vocal_2',config);
-   status('GPU 初始化失敗，改用 CPU 載入…');await separator.loadModel();
-  }
-  inputUrl=URL.createObjectURL(snap.blob);
-  // This model's primary stem is vocals; the library returns secondary first.
-  const urls=await separator.separate(inputUrl);
-  if(urls.length!==2)throw Error('模型未產生預期的兩個結果');
-  resultUrls.forEach(u=>URL.revokeObjectURL(u));resultUrls=urls;el('aiResults').replaceChildren();
-  const labels=['伴奏','人聲'];
-  for(let i=0;i<urls.length;i++){
-   const section=document.createElement('section'),title=document.createElement('b'),player=document.createElement('audio'),link=document.createElement('a'),button=document.createElement('button');
-   const name=snap.name.replace(/\.[^.]+$/,'')+'_'+labels[i]+'.wav';
-   title.textContent=labels[i];player.controls=true;player.src=urls[i];link.href=urls[i];link.download=name;link.textContent='下載 '+labels[i]+' WAV';button.textContent='載入編輯器';
-   button.addEventListener('click',async()=>{try{await window.waveStudioAI.addStem(await (await fetch(urls[i])).blob(),name)}catch(e){status('載入失敗：'+e.message)}});
-   section.append(title,player,link,button);el('aiResults').append(section);
-  }
-  el('aiProgress').value=1;status(`分離完成 · ${snap.seconds.toFixed(1)} 秒 · ${provider.toUpperCase()}。請試聽檢查殘留與音質。`);
- }catch(error){console.error(error);status('處理失敗：'+error.message+'。可改用 CPU、縮短選區，或確認模型下載未被阻擋。');}
- finally{
-  if(inputUrl)URL.revokeObjectURL(inputUrl);
-  if(separator?.model?.release)await separator.model.release().catch(()=>{});
-  if(separator?.modelPath?.startsWith('blob:'))URL.revokeObjectURL(separator.modelPath);
-  busy=false;el('aiRun').disabled=false;
+let busy=false,worker=null,jobId=0,resultUrls=[],lastActivity=0,timer=null,activeResult=null;
+const status=text=>{el('aiStatus').textContent=text;lastActivity=Date.now()};
+function finish(){worker?.terminate();worker=null;busy=false;clearInterval(timer);timer=null;el('aiRun').disabled=false;el('aiCancel').disabled=true;el('aiClearCache').disabled=false}
+el('aiCancel').addEventListener('click',()=>{jobId++;finish();status('已取消背景工作，可重新選取音訊再試。')});
+el('aiClearCache').addEventListener('click',async()=>{try{await clearModelCache();status('模型快取已清除')}catch(e){status('無法清除快取：'+e.message)}});
+function showResults(blobs,snap){
+ window.waveStudioStemPlayer?.dispose();
+ resultUrls.forEach(u=>URL.revokeObjectURL(u));resultUrls=blobs.map(b=>URL.createObjectURL(b));el('aiResults').replaceChildren();
+ for(let i=0;i<blobs.length;i++){
+  const label=['伴奏','人聲'][i],section=document.createElement('section'),title=document.createElement('b'),link=document.createElement('a'),button=document.createElement('button');
+  const name=snap.name.replace(/\.[^.]+$/,'')+'_'+label+'.wav';title.textContent=label;link.href=resultUrls[i];link.download=name;link.textContent='下載 '+label+' WAV';button.textContent='載入編輯器';
+  button.addEventListener('click',async()=>{try{await window.waveStudioAI.addStem(blobs[i],name)}catch(e){status('載入失敗：'+e.message)}});section.append(title,link,button);el('aiResults').append(section);
  }
+ mountStemPlayer(el('aiResults'),blobs,snap,{onError:e=>status('播放失敗：'+e.message)});
+}
+async function refreshRecords(selected){
+ const records=await allResults(),select=el('replaySelect');select.replaceChildren();
+ const empty=document.createElement('option');empty.value='';empty.textContent=records.length?'請選擇已分離的歌曲':'尚無分離紀錄';select.append(empty);
+ for(const r of records){const option=document.createElement('option');option.value=r.id;option.textContent=r.name+' · '+new Date(r.created).toLocaleString();select.append(option)}
+ if(selected)select.value=selected;
+ el('replayLoad').disabled=!records.length;
+}
+async function acceptResult(blobs,snap){
+ const record=newResult(blobs,snap);activeResult=record.id;showResults(blobs,snap);
+ const persisted=await saveResult(record);await refreshRecords(record.id);
+ el('replayStatus').textContent=persisted?'已保存於此瀏覽器，可隨時選回播放；也可儲存專案備份。':'目前僅保留於本次分頁，請儲存專案或下載 WAV 備份。';
+}
+el('replayLoad').addEventListener('click',async()=>{try{const record=(await allResults()).find(r=>r.id===el('replaySelect').value);if(!record){el('replayStatus').textContent='請先選擇一筆紀錄';return}activeResult=record.id;showResults(record.blobs,record);el('replayStatus').textContent='已載入既有結果，不需重新分離'}catch(e){el('replayStatus').textContent='載入失敗：'+e.message}});
+el('replayImport').addEventListener('click',async()=>{try{const accompaniment=el('replayMusic').files[0],vocals=el('replayVocals').files[0];if(!accompaniment||!vocals)throw Error('請分別選擇伴奏與人聲音訊');const context=window.waveStudioAI.getContext();const decoded=await Promise.all([accompaniment,vocals].map(async f=>context.decodeAudioData(await f.arrayBuffer())));await acceptResult([accompaniment,vocals],{name:accompaniment.name.replace(/[_-]伴奏/,'')+'（匯入回放）',seconds:Math.max(...decoded.map(b=>b.duration))})}catch(e){el('replayStatus').textContent=e.message}});
+window.waveStudioReplay={
+ async capture(){return {records:await allResults(),activeResult,player:window.waveStudioStemPlayer?.capture()||null}},
+ async restore(state){window.waveStudioStemPlayer?.dispose();el('aiResults').replaceChildren();activeResult=null;for(const r of state?.records||[]){if(Array.isArray(r.blobs)&&r.blobs.length===2&&r.blobs.every(b=>b instanceof Blob))await saveResult(r)}await refreshRecords(state?.activeResult);const record=(await allResults()).find(r=>r.id===state?.activeResult);if(record){activeResult=record.id;showResults(record.blobs,record);window.waveStudioStemPlayer.restore(state.player)}el('replayStatus').textContent='專案分離結果已還原，可直接播放'},
+ isBusy:()=>busy
+};
+refreshRecords().catch(()=>{});
+el('aiRun').addEventListener('click',async()=>{
+ if(busy)return;const id=++jobId;let snap;
+ try{
+  if(location.protocol==='file:')throw Error('請使用 HTTPS 網站或 localhost');
+  busy=true;el('aiRun').disabled=true;el('aiCancel').disabled=false;el('aiClearCache').disabled=true;el('aiProgress').value=0;status('準備音訊…');
+  await new Promise(resolve=>setTimeout(resolve,0));if(id!==jobId)return;
+  snap=window.waveStudioAI.snapshot(el('aiSelection').checked);
+  // Browser-native asynchronous decoder/resampler, not a JavaScript FFT loop.
+  status('解碼音訊並轉換至 44,100 Hz…');
+  const decoder=new OfflineAudioContext(2,1,44100),b=await decoder.decodeAudioData(await snap.blob.arrayBuffer());
+  if(id!==jobId)return;
+  const channels=[b.getChannelData(0).slice(),b.getChannelData(b.numberOfChannels>1?1:0).slice()];
+  worker=new Worker(new URL('./ai-worker.js?v=quality-1',import.meta.url),{type:'module'});
+  const started=Date.now();let currentText='啟動背景 AI…';status(currentText);
+  timer=setInterval(()=>{if(busy){const elapsed=Math.floor((Date.now()-started)/1000);el('aiStatus').textContent=currentText+' · 已用 '+elapsed+' 秒'+(Date.now()-lastActivity>15000?'（背景運算中，可隨時取消）':'')}},1000);
+  const say=text=>{currentText=text;status(text)};
+  worker.onerror=e=>{if(id!==jobId)return;finish();status('背景工作錯誤：'+(e.message||'請重新整理後再試'))};
+  worker.onmessage=event=>{
+   if(id!==jobId)return;const m=event.data;
+   if(m.type==='status')say(m.text);
+   if(m.type==='download'){
+    const p=m.progress,mb=n=>(n/1048576).toFixed(1);
+    say(p.cached?'使用模型快取…':p.retry?'模型載入重試中…':'模型讀取：'+mb(p.received||0)+' MB'+(p.total?' / '+mb(p.total)+' MB':''));
+    el('aiProgress').value=p.total ? .1*(p.received/p.total) : 0;
+   }
+   if(m.type==='progress'){
+    const p=m.progress,f=Math.max(0,Math.min(1,p.fraction)),stage={'loading-model':'背景載入模型','demixing':'背景 AI 分離','writing-output':'背景產生結果'}[p.stage]||p.stage;
+    el('aiProgress').value=p.stage==='loading-model'?f*.1:p.stage==='demixing'?.1+f*.85:.95+f*.05;
+    say(stage+' · '+Math.round(f*100)+'%'+(p.chunk?' ('+p.chunk+'/'+p.totalChunks+')':'')+' · '+m.provider.toUpperCase());
+   }
+   if(m.type==='fallback'){window.waveStudioGPUFailed=true;el('aiBackend').value='wasm';say('GPU 失敗，背景 CPU 從頭重試…')}
+   if(m.type==='done'){finish();acceptResult(m.blobs,snap).catch(e=>status('保存結果失敗：'+e.message));el('aiProgress').value=1;status('分離完成 · '+snap.seconds.toFixed(1)+' 秒 · '+m.provider.toUpperCase())}
+   if(m.type==='error'){finish();status('背景處理失敗：'+m.text+'。可縮短選區後再試。')}
+  };
+  worker.postMessage({channels,quality:el('aiQuality').value,localFile:el('aiModelFile').files[0],preferGPU:el('aiBackend').value==='auto'&&!window.waveStudioGPUFailed},channels.map(c=>c.buffer));
+ }catch(error){if(id===jobId){finish();status('處理失敗：'+error.message)}}
 });
-window.addEventListener('pagehide',()=>resultUrls.forEach(u=>URL.revokeObjectURL(u)));
+window.addEventListener('pagehide',()=>{worker?.terminate();window.waveStudioStemPlayer?.dispose();resultUrls.forEach(u=>URL.revokeObjectURL(u))});

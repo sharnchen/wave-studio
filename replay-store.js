@@ -1,0 +1,6 @@
+const memory=new Map();let dbPromise;
+function db(){return dbPromise ||= new Promise((resolve,reject)=>{const request=indexedDB.open('wave-studio-results',1);request.onupgradeneeded=()=>request.result.createObjectStore('results',{keyPath:'id'});request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error)})}
+async function transaction(mode,action){const database=await db();return new Promise((resolve,reject)=>{const tx=database.transaction('results',mode),request=action(tx.objectStore('results'));let value;request.onsuccess=()=>value=request.result;tx.oncomplete=()=>resolve(value);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)})}
+export async function allResults(){let stored=[];try{stored=await transaction('readonly',s=>s.getAll())}catch{}const map=new Map(stored.map(r=>[r.id,r]));for(const r of memory.values())map.set(r.id,r);return [...map.values()].sort((a,b)=>b.created-a.created)}
+export async function saveResult(record){memory.set(record.id,record);try{await transaction('readwrite',s=>s.put(record));return true}catch{return false}}
+export function newResult(blobs,snap){return {id:globalThis.crypto?.randomUUID?.()||Date.now().toString(36)+Math.random().toString(36).slice(2),created:Date.now(),name:snap.name,seconds:snap.seconds,blobs}}
