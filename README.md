@@ -5,13 +5,13 @@
 ## 最簡單部署：從分支發布
 
 1. 在 GitHub 建立 Repository，例如 `wave-studio`。
-2. 解壓縮此 ZIP，將 **index.html** 上傳至 Repository 的最外層，不要只上傳 ZIP，也不要多包一層資料夾。
+2. 解壓縮此 ZIP，將 **index.html、style.css、app.js** 一起上傳至 Repository 的最外層，不要只上傳 ZIP，也不要多包一層資料夾。
 3. 提交到 `main` 分支。
 4. 開啟 **Settings → Pages**。
 5. Source 選 **Deploy from a branch**；Branch 選 **main**，資料夾選 **/(root)**，按 Save。
 6. 等待 Pages 完成發布，從 Pages 設定頁開啟實際網址。一般專案網址格式為 `https://你的帳號.github.io/wave-studio/`。
 
-此方式只需 index.html；不必上傳 .github 資料夾。
+此方式需 index.html、style.css、app.js，三個檔案須放在同一層；不必上傳 .github 資料夾。
 
 ## 自動部署：GitHub Actions
 
@@ -50,3 +50,11 @@
 ## 參考
 
 GitHub 官方發布來源說明：https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site
+
+## 檔案分工
+
+- `index.html`：頁面結構與控制項。
+- `style.css`：外部樣式表。
+- `app.js`：音訊處理與互動程式。
+
+三個檔案請一起上傳，保留相對路徑。頁面中的 CSS 樣式及事件處理程式已移至外部檔案。
