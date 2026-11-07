@@ -48,3 +48,6 @@
 @media(max-width:999px){.right>.equalizer-panel{margin-top:0!important}}
 
 .right>#replayPanel{margin-top:0;align-self:start;min-width:0}.right #replayPanel input[type=file]{width:100%;min-width:0;font-size:12px}.right #replayPanel summary{cursor:pointer;color:var(--mint);margin-top:12px}.right #replayPanel select{min-width:0}
+
+/* Keep each stem label beside its file picker, including narrow screens. */
+#replayPanel .stem-file-row{display:flex;align-items:center;gap:10px;margin-top:14px;min-width:0}#replayPanel .stem-file-row>label{flex:0 0 auto;margin:0;white-space:nowrap} .right #replayPanel .stem-file-row>input[type=file]{flex:1 1 0;width:0;min-width:0;max-width:100%;margin:0}
