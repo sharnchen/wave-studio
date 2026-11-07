@@ -4,7 +4,7 @@ import { clearModelCache } from './model-loader.js';
 const el=id=>document.getElementById(id);
 let busy=false,worker=null,jobId=0,resultUrls=[],lastActivity=0,timer=null,activeResult=null;
 const status=text=>{el('aiStatus').textContent=text;lastActivity=Date.now()};
-function finish(){worker?.terminate();worker=null;busy=false;clearInterval(timer);timer=null;el('aiRun').disabled=false;el('aiCancel').disabled=true;el('aiClearCache').disabled=false}
+function finish(){worker?.terminate();worker=null;busy=false;clearInterval(timer);timer=null;el('aiRun').disabled=false;el('aiBenchmark').disabled=false;el('aiCancel').disabled=true;el('aiClearCache').disabled=false}
 el('aiCancel').addEventListener('click',()=>{jobId++;finish();status('已取消背景工作，可重新選取音訊再試。')});
 el('aiClearCache').addEventListener('click',async()=>{try{await clearModelCache();status('模型快取已清除')}catch(e){status('無法清除快取：'+e.message)}});
 function showResults(blobs,snap){
@@ -28,19 +28,28 @@ window.waveStudioReplay={
  async restore(state){window.waveStudioStemPlayer?.dispose();el('aiResults').replaceChildren();activeResult=null;for(const r of state?.records||[]){if(Array.isArray(r.blobs)&&r.blobs.length===2&&r.blobs.every(b=>b instanceof Blob))await saveResult(r)}const record=(await allResults()).find(r=>r.id===state?.activeResult);if(record){activeResult=record.id;showResults(record.blobs,record);window.waveStudioStemPlayer.restore(state.player)}el('replayStatus').textContent='專案分離結果已還原，可直接播放'},
  isBusy:()=>busy
 };
-el('aiRun').addEventListener('click',async()=>{
+el('aiRun').addEventListener('click',()=>runAI(false));
+el('aiBenchmark').addEventListener('click',()=>runAI(true));
+function renderBenchmark(rows,modelReadMs){
+ const lines=['同一段最多 5 秒音訊 · 單次推論 · 冷啟動測試（未預熱）','模型讀取：'+(modelReadMs/1000).toFixed(2)+' 秒'];
+ for(const r of rows){if(!r.ok){lines.push(r.provider.toUpperCase()+'：不支援／失敗 — '+r.error);continue}lines.push(r.provider.toUpperCase()+'：模型初始化 '+(r.loadMs/1000).toFixed(2)+' 秒；推論總計 '+(r.inferenceMs/1000).toFixed(2)+' 秒（'+r.calls+' 次）；首次 '+r.firstMs.toFixed(0)+' ms；後續平均 '+(r.calls>1?((r.inferenceMs-r.firstMs)/(r.calls-1)).toFixed(0):'—')+' ms；處理總計 '+(r.processMs/1000).toFixed(2)+' 秒；速度 '+(r.seconds/(r.processMs/1000)).toFixed(2)+'×');}
+ lines.push('處理總計含頻譜轉換與輸出，不含模型讀取／初始化。WebNN GPU 為請求裝置；不支援的運算子可能由 CPU 執行，無法據此確認 DirectML。');
+ el('aiBenchmarkResults').textContent=lines.join('\n\n');
+}
+async function runAI(benchmark=false){
  if(busy)return;const id=++jobId;let snap;
  try{
   if(location.protocol==='file:')throw Error('請使用 HTTPS 網站或 localhost');
-  busy=true;el('aiRun').disabled=true;el('aiCancel').disabled=false;el('aiClearCache').disabled=true;el('aiProgress').value=0;status('準備音訊…');
+  busy=true;el('aiRun').disabled=true;el('aiBenchmark').disabled=true;if(benchmark)el('aiBenchmarkResults').textContent='測試準備中…';el('aiCancel').disabled=false;el('aiClearCache').disabled=true;el('aiProgress').value=0;status('準備音訊…');
   await new Promise(resolve=>setTimeout(resolve,0));if(id!==jobId)return;
   snap=window.waveStudioAI.snapshot(el('aiSelection').checked);
   // Browser-native asynchronous decoder/resampler, not a JavaScript FFT loop.
   status('解碼音訊並轉換至 44,100 Hz…');
   const decoder=new OfflineAudioContext(2,1,44100),b=await decoder.decodeAudioData(await snap.blob.arrayBuffer());
   if(id!==jobId)return;
-  const channels=[b.getChannelData(0).slice(),b.getChannelData(b.numberOfChannels>1?1:0).slice()];
-  worker=new Worker(new URL('./ai-worker.js?v=single-pass-24',import.meta.url),{type:'module'});
+  const limit=benchmark?Math.min(b.length,44100*5):b.length;
+  const channels=[b.getChannelData(0).slice(0,limit),b.getChannelData(b.numberOfChannels>1?1:0).slice(0,limit)];
+  worker=new Worker(new URL('./ai-worker.js?v=webnn-bench-25',import.meta.url),{type:'module'});
   const started=Date.now();let currentText='啟動背景 AI…';status(currentText);
   timer=setInterval(()=>{if(busy){const elapsed=Math.floor((Date.now()-started)/1000);el('aiStatus').textContent=currentText+' · 已用 '+elapsed+' 秒'+(Date.now()-lastActivity>15000?'（背景運算中，可隨時取消）':'')}},1000);
   const say=text=>{currentText=text;status(text)};
@@ -58,11 +67,13 @@ el('aiRun').addEventListener('click',async()=>{
     el('aiProgress').value=p.stage==='loading-model'?f*.1:p.stage==='demixing'?.1+f*.85:.95+f*.05;
     say(stage+' · '+Math.round(f*100)+'%'+(p.chunk?' ('+p.chunk+'/'+p.totalChunks+')':'')+' · '+m.provider.toUpperCase());
    }
-   if(m.type==='fallback'){window.waveStudioGPUFailed=true;el('aiBackend').value='wasm';say('GPU 失敗，背景 CPU 從頭重試…')}
+   if(m.type==='fallback')say(m.from.toUpperCase()+' 失敗，改用 '+m.to.toUpperCase()+' 重試…');
+   if(m.type==='benchmark-progress')renderBenchmark(m.rows,m.modelReadMs);
+   if(m.type==='benchmark-done'){renderBenchmark(m.rows,m.modelReadMs);finish();el('aiProgress').value=1;say('效能測試完成，結果如下')} 
    if(m.type==='done'){finish();acceptResult(m.blobs,snap).catch(e=>status('保存結果失敗：'+e.message));el('aiProgress').value=1;status('分離完成 · '+snap.seconds.toFixed(1)+' 秒 · '+m.provider.toUpperCase())}
    if(m.type==='error'){finish();status('背景處理失敗：'+m.text+'。可縮短選區後再試。')}
   };
-  worker.postMessage({channels,quality:el('aiQuality').value,localFile:el('aiModelFile').files[0],preferGPU:el('aiBackend').value==='auto'&&!window.waveStudioGPUFailed},channels.map(c=>c.buffer));
+  worker.postMessage({channels,benchmark,backend:el('aiBackend').value,quality:el('aiQuality').value,localFile:el('aiModelFile').files[0],preferGPU:el('aiBackend').value==='auto'&&!window.waveStudioGPUFailed},channels.map(c=>c.buffer));
  }catch(error){if(id===jobId){finish();status('處理失敗：'+error.message)}}
-});
+}
 window.addEventListener('pagehide',()=>{worker?.terminate();window.waveStudioStemPlayer?.dispose();resultUrls.forEach(u=>URL.revokeObjectURL(u))});
