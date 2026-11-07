@@ -3,6 +3,7 @@ const el=id=>document.getElementById(id);
 const format=t=>Math.floor(t/60).toString().padStart(2,'0')+':'+(t%60).toFixed(3).padStart(6,'0');
 function render(){
  const source=el('playbackSource').value,stem=window.waveStudioStemPlayer?.state(),state=source==='stems'?stem:window.waveStudioAI.editorState();
+ if(source==='stems')window.waveStudioAI.drawLiveSpectrum?.();
  renderReplayWave(source==='stems'?window.waveStudioStemPlayer?.waveBuffers():null,state,el('stemMode').value);
  el('playbackSource').querySelector('[value=stems]').disabled=!stem?.ready;el('stemMode').disabled=source!=='stems'||!stem?.ready;
  el('playbackSeek').disabled=!state?.ready;el('playbackSeek').max=String(state?.duration||0);el('playbackSeek').value=String(state?.position||0);
