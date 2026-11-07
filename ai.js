@@ -19,8 +19,8 @@ function showResults(blobs,snap){
 }
 async function acceptResult(blobs,snap){
  const record=newResult(blobs,snap);activeResult=record.id;showResults(blobs,snap);
- const persisted=await saveResult(record);
- el('replayStatus').textContent=persisted?'分離結果已保存；可儲存專案，日後開啟專案即可還原回放。':'目前僅保留於本次分頁，請儲存專案或下載 WAV 備份。';
+ await saveResult(record);
+ el('replayStatus').textContent='';
 }
 el('replayImport').addEventListener('click',async()=>{try{const accompaniment=el('replayMusic').files[0],vocals=el('replayVocals').files[0];if(!accompaniment||!vocals)throw Error('請分別選擇伴奏與人聲音訊');const context=window.waveStudioAI.getContext();const decoded=await Promise.all([accompaniment,vocals].map(async f=>context.decodeAudioData(await f.arrayBuffer())));await acceptResult([accompaniment,vocals],{name:accompaniment.name.replace(/[_-]伴奏/,'')+'（匯入回放）',seconds:Math.max(...decoded.map(b=>b.duration))})}catch(e){el('replayStatus').textContent=e.message}});
 window.waveStudioReplay={
