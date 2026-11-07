@@ -46,3 +46,5 @@
 .right>.equalizer-panel{margin:0 0 18px;padding:14px;min-width:0}.right .eq-bands{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.right .eq-band{padding:8px 0}.right .eq-band input{height:94px;width:26px}.right .eq-title{gap:8px}.right .eq-title b{font-size:14px}.right .eq-actions{flex-wrap:wrap;gap:6px}.right .eq-actions select{max-width:none}.right .eq-actions button,.right #eqApply{width:100%;font-size:12px}.right .eq-band span,.right .eq-band output{font-size:10px}.right #eqApply{white-space:normal}
 @media(min-width:1000px){.workspace{grid-template-columns:170px minmax(0,1fr) 320px}.workspace>aside.right{grid-column:auto;display:block}.right .equalizer-panel{align-self:start}}
 @media(max-width:999px){.right>.equalizer-panel{margin-top:0!important}}
+
+.right>#replayPanel{margin-top:0;align-self:start;min-width:0}.right #replayPanel input[type=file]{width:100%;min-width:0;font-size:12px}.right #replayPanel summary{cursor:pointer;color:var(--mint);margin-top:12px}.right #replayPanel select{min-width:0}
