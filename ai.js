@@ -40,7 +40,7 @@ el('aiRun').addEventListener('click',async()=>{
   const decoder=new OfflineAudioContext(2,1,44100),b=await decoder.decodeAudioData(await snap.blob.arrayBuffer());
   if(id!==jobId)return;
   const channels=[b.getChannelData(0).slice(),b.getChannelData(b.numberOfChannels>1?1:0).slice()];
-  worker=new Worker(new URL('./ai-worker.js?v=quality-1',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./ai-worker.js?v=single-pass-24',import.meta.url),{type:'module'});
   const started=Date.now();let currentText='啟動背景 AI…';status(currentText);
   timer=setInterval(()=>{if(busy){const elapsed=Math.floor((Date.now()-started)/1000);el('aiStatus').textContent=currentText+' · 已用 '+elapsed+' 秒'+(Date.now()-lastActivity>15000?'（背景運算中，可隨時取消）':'')}},1000);
   const say=text=>{currentText=text;status(text)};

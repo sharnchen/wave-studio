@@ -17,7 +17,7 @@ self.onmessage=async event=>{
    inputUrl:'worker-pcm',preferGPU:provider==='webgpu',
    onBackend:p=>{provider=p;send('backend',{provider:p})},
    create:p=>{
-    const separator=createSeparator('Kim_Vocal_2',{common:{logLevel:'warning',normalizationThreshold:1,amplificationThreshold:0,onProgress:progress=>send('progress',{progress,provider})},mdx:{segmentSize:256,overlap:quality==='high'?.75:.25,enableDenoise:quality==='high',batchSize:1,executionProviders:[p]}});
+    const separator=createSeparator('Kim_Vocal_2',{common:{logLevel:'warning',normalizationThreshold:1,amplificationThreshold:0,onProgress:progress=>send('progress',{progress,provider})},mdx:{segmentSize:256,overlap:quality==='high'?.75:.25,enableDenoise:false,batchSize:1,executionProviders:[p]}});
     separator.modelPath=URL.createObjectURL(model);separator.downloadModel=async()=>{};return separator;
    },
    onFallback:error=>send('fallback',{text:String(error.message||error).slice(0,160)}),
