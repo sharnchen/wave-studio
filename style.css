@@ -51,3 +51,6 @@
 
 /* Keep each stem label beside its file picker, including narrow screens. */
 #replayPanel .stem-file-row{display:flex;align-items:center;gap:10px;margin-top:14px;min-width:0}#replayPanel .stem-file-row>label{flex:0 0 auto;margin:0;white-space:nowrap} .right #replayPanel .stem-file-row>input[type=file]{flex:1 1 0;width:0;min-width:0;max-width:100%;margin:0}
+
+/* Preset and reset share a row at every viewport width. */
+.right .eq-actions{display:flex;flex-wrap:nowrap;align-items:stretch}.right .eq-actions select{flex:1 1 0;width:0;min-width:0;max-width:none}.right .eq-actions button{flex:0 0 auto;width:auto;white-space:nowrap;margin:0;padding:9px 10px}
