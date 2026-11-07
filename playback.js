@@ -1,4 +1,4 @@
-import {renderReplayWave} from './replay-wave.js?v=10';
+import {renderReplayWave} from './replay-wave.js?v=source-refresh-15';
 const el=id=>document.getElementById(id);
 const format=t=>Math.floor(t/60).toString().padStart(2,'0')+':'+(t%60).toFixed(3).padStart(6,'0');
 function render(){
@@ -10,7 +10,8 @@ function render(){
  el('playbackRateRead').textContent=(Number(el('playbackRate').value)/100).toFixed(2)+'×';
  el('playbackInfo').textContent=(source==='stems'?'分離回放':'正常播放')+' · '+format(state?.position||0)+' / '+format(state?.duration||0);
 }
-function select(source){window.waveStudioAI.stopEditor();window.waveStudioStemPlayer?.pause();if(source==='stems'&&!window.waveStudioStemPlayer?.state().ready){el('playbackSource').value='editor'}else el('playbackSource').value=source;if(el('playbackSource').value==='editor'){delete el('ruler').dataset.replayDuration;window.waveStudioAI.redrawEditor()}render()}
+function select(source){const actual=source==='stems'&&window.waveStudioStemPlayer?.state()?.ready?'stems':'editor';el('playbackSource').value=actual;window.waveStudioAI.stopEditor();window.waveStudioStemPlayer?.pause();delete el('ruler').dataset.replayDuration;render();if(actual==='editor')window.waveStudioAI.redrawEditor()}
+
 window.waveStudioPlayback={render,select};
 el('playbackSource').addEventListener('change',()=>select(el('playbackSource').value));
 el('stemMode').addEventListener('change',()=>{window.waveStudioStemPlayer?.setMode(el('stemMode').value);render()});
