@@ -17,26 +17,17 @@ function showResults(blobs,snap){
  }
  mountStemPlayer(el('aiResults'),blobs,snap,{onError:e=>status('播放失敗：'+e.message)});
 }
-async function refreshRecords(selected){
- const records=await allResults(),select=el('replaySelect');select.replaceChildren();
- const empty=document.createElement('option');empty.value='';empty.textContent=records.length?'請選擇已分離的歌曲':'尚無分離紀錄';select.append(empty);
- for(const r of records){const option=document.createElement('option');option.value=r.id;option.textContent=r.name+' · '+new Date(r.created).toLocaleString();select.append(option)}
- if(selected)select.value=selected;
- el('replayLoad').disabled=!records.length;
-}
 async function acceptResult(blobs,snap){
  const record=newResult(blobs,snap);activeResult=record.id;showResults(blobs,snap);
- const persisted=await saveResult(record);await refreshRecords(record.id);
- el('replayStatus').textContent=persisted?'已保存於此瀏覽器，可隨時選回播放；也可儲存專案備份。':'目前僅保留於本次分頁，請儲存專案或下載 WAV 備份。';
+ const persisted=await saveResult(record);
+ el('replayStatus').textContent=persisted?'分離結果已保存；可儲存專案，日後開啟專案即可還原回放。':'目前僅保留於本次分頁，請儲存專案或下載 WAV 備份。';
 }
-el('replayLoad').addEventListener('click',async()=>{try{const record=(await allResults()).find(r=>r.id===el('replaySelect').value);if(!record){el('replayStatus').textContent='請先選擇一筆紀錄';return}activeResult=record.id;showResults(record.blobs,record);el('replayStatus').textContent='已載入既有結果，不需重新分離'}catch(e){el('replayStatus').textContent='載入失敗：'+e.message}});
 el('replayImport').addEventListener('click',async()=>{try{const accompaniment=el('replayMusic').files[0],vocals=el('replayVocals').files[0];if(!accompaniment||!vocals)throw Error('請分別選擇伴奏與人聲音訊');const context=window.waveStudioAI.getContext();const decoded=await Promise.all([accompaniment,vocals].map(async f=>context.decodeAudioData(await f.arrayBuffer())));await acceptResult([accompaniment,vocals],{name:accompaniment.name.replace(/[_-]伴奏/,'')+'（匯入回放）',seconds:Math.max(...decoded.map(b=>b.duration))})}catch(e){el('replayStatus').textContent=e.message}});
 window.waveStudioReplay={
  async capture(){return {records:await allResults(),activeResult,player:window.waveStudioStemPlayer?.capture()||null}},
- async restore(state){window.waveStudioStemPlayer?.dispose();el('aiResults').replaceChildren();activeResult=null;for(const r of state?.records||[]){if(Array.isArray(r.blobs)&&r.blobs.length===2&&r.blobs.every(b=>b instanceof Blob))await saveResult(r)}await refreshRecords(state?.activeResult);const record=(await allResults()).find(r=>r.id===state?.activeResult);if(record){activeResult=record.id;showResults(record.blobs,record);window.waveStudioStemPlayer.restore(state.player)}el('replayStatus').textContent='專案分離結果已還原，可直接播放'},
+ async restore(state){window.waveStudioStemPlayer?.dispose();el('aiResults').replaceChildren();activeResult=null;for(const r of state?.records||[]){if(Array.isArray(r.blobs)&&r.blobs.length===2&&r.blobs.every(b=>b instanceof Blob))await saveResult(r)}const record=(await allResults()).find(r=>r.id===state?.activeResult);if(record){activeResult=record.id;showResults(record.blobs,record);window.waveStudioStemPlayer.restore(state.player)}el('replayStatus').textContent='專案分離結果已還原，可直接播放'},
  isBusy:()=>busy
 };
-refreshRecords().catch(()=>{});
 el('aiRun').addEventListener('click',async()=>{
  if(busy)return;const id=++jobId;let snap;
  try{
